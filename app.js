@@ -22,9 +22,14 @@ let programmaticScroll = false;
 let renderedRoleSignature = "";
 let browserDirectory = "";
 let selectedFileHandle = null;
+let compactNotes = false;
 
 function roleStorageKey() {
   return `script-cue-roles:${currentUser?.username || "default"}`;
+}
+
+function compactNotesStorageKey() {
+  return `script-cue-compact-notes:${currentUser?.username || "default"}`;
 }
 
 async function request(path, options = {}) {
@@ -54,8 +59,9 @@ function showLogin() {
   elements.login.hidden = false;
 }
 
-function showApp(user) {
+async function showApp(user) {
   currentUser = user;
+  compactNotes = localStorage.getItem(compactNotesStorageKey()) === "true";
   const savedRoles = localStorage.getItem(roleStorageKey());
   if (savedRoles) {
     selectedRoles = new Set(JSON.parse(savedRoles));
@@ -71,7 +77,9 @@ function showApp(user) {
   $("#empty-add-line").hidden = !user.admin || !currentState.selectedFile;
   $("#sync-status").textContent = "Connected";
   applyPreferences();
-  fetchState(true);
+  updateCompactNotesButton();
+  await reloadScriptFromFile(false, false, false);
+  await fetchState(true);
   clearInterval(pollTimer);
   pollTimer = setInterval(() => fetchState(false), 1000);
 }
@@ -102,6 +110,7 @@ async function fetchState(initial) {
     renderRoleFilters();
     if (!dirty && (initial || changedScript || changedFile)) renderScript();
     renderSelectedFile();
+    $("#reload-script-file").hidden = !currentState.selectedFile;
     $("#add-line").hidden = !currentUser.admin || !currentState.selectedFile;
     $("#empty-add-line").hidden = !currentUser.admin || !currentState.selectedFile;
     if (data.playhead.sequence !== previousSequence && !initial) {
@@ -185,7 +194,7 @@ function renderScript() {
     const saveButton = create("button", "primary save-script", "Save changes");
     saveButton.id = "save-script";
     saveButton.addEventListener("click", saveScript);
-    $(".script-toolbar").append(saveButton);
+    $(".script-toolbar-actions").append(saveButton);
   }
 
   elements.scriptList.replaceChildren();
@@ -194,13 +203,18 @@ function renderScript() {
     card.dataset.lineId = line.id;
     if (line.id === currentState.playhead.lineId) card.classList.add("live-line");
     const lineHead = create("div", "line-head");
-    const cueNumber = create("span", "cue-number", String(script.indexOf(line) + 1).padStart(2, "0"));
     const tags = create("div", "line-tags");
     line.roles.forEach(role => tags.append(create("span", "role-tag", role)));
     if (line.important) tags.append(create("span", "important-tag", "Important cue"));
-    lineHead.append(cueNumber, tags);
-    card.append(lineHead);
+    if (tags.childElementCount) {
+      lineHead.append(tags);
+      card.append(lineHead);
+    }
 
+    const lineBody = create("div", "line-body");
+    const cueNumber = create("span", "cue-number", String(script.indexOf(line) + 1).padStart(2, "0"));
+    lineBody.append(cueNumber);
+    let lineOptions = null;
     if (currentUser.admin) {
       const editor = create("textarea", "line-editor");
       editor.setAttribute("aria-label", `Script line ${script.indexOf(line) + 1}`);
@@ -212,8 +226,8 @@ function renderScript() {
         dirty = true;
         updateSaveButton();
       });
-      card.append(editor);
-      const lineOptions = create("div", "line-options");
+      lineBody.append(editor);
+      lineOptions = create("div", "line-options");
       const rolesBox = create("div", "line-role-options");
       roleCheckboxes(rolesBox, currentState.roles, new Set(line.roles), (role, checked) => {
         line.roles = checked ? [...new Set([...line.roles, role])] : line.roles.filter(item => item !== role);
@@ -254,16 +268,17 @@ function renderScript() {
         }
       });
       lineOptions.append(moveUp, moveDown, remove);
-      card.append(lineOptions);
     } else {
-      card.append(create("p", "script-text", line.text || "(Empty script line)"));
+      lineBody.append(create("p", "script-text", line.text || "(Empty script line)"));
     }
+    card.append(lineBody);
+    if (lineOptions) card.append(lineOptions);
 
     const comments = visibleComments(line);
     if (comments.length) {
       const commentList = create("div", "comment-list");
       comments.forEach(comment => {
-        const note = create("div", "comment");
+        const note = create("div", `comment${compactNotes ? " compact-note" : ""}`);
         const noteHead = create("div", "comment-head");
         noteHead.append(create("strong", "", comment.author || "Production note"));
         comment.roles.forEach(role => noteHead.append(create("span", "role-tag", role)));
@@ -333,7 +348,7 @@ function updateSaveButton() {
     const button = create("button", "primary save-script", "Save changes");
     button.id = "save-script";
     button.addEventListener("click", saveScript);
-    $(".script-toolbar").append(button);
+    $(".script-toolbar-actions").append(button);
   }
 }
 
@@ -363,6 +378,33 @@ function renderSelectedFile() {
   const name = currentState.selectedName || file;
   $("#selected-file").textContent = name || "No text file selected";
   $("#selected-file").title = name || "";
+  $("#reload-script-file").hidden = !file;
+}
+
+function updateCompactNotesButton() {
+  const button = $("#toggle-compact-notes");
+  button.textContent = `Compact notes: ${compactNotes ? "On" : "Off"}`;
+  button.setAttribute("aria-pressed", String(compactNotes));
+}
+
+async function reloadScriptFromFile(confirmDiscard = true, announce = true, refreshState = true) {
+  if (confirmDiscard && dirty && !confirm("Discard unsaved script changes and reload the text file?")) return;
+  try {
+    const result = await request("/api/script-files/reload", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    if (!result.reloaded) {
+      if (announce) showToast("No script file is selected.");
+      return;
+    }
+    dirty = false;
+    if (refreshState) await fetchState(true);
+    if (announce) showToast("Script reloaded from the text file.");
+  } catch (error) {
+    if (announce) showToast(error.message);
+    else showToast(`Could not reload the selected text file: ${error.message}`);
+  }
 }
 
 async function loadScriptFiles(directory = browserDirectory) {
@@ -613,6 +655,13 @@ $("#logout-button").addEventListener("click", async () => {
 
 $("#add-line").addEventListener("click", addLine);
 $("#empty-add-line").addEventListener("click", addLine);
+$("#toggle-compact-notes").addEventListener("click", () => {
+  compactNotes = !compactNotes;
+  localStorage.setItem(compactNotesStorageKey(), String(compactNotes));
+  updateCompactNotesButton();
+  renderScript();
+});
+$("#reload-script-file").addEventListener("click", () => reloadScriptFromFile());
 $("#browse-script-files").addEventListener("click", openLocalScriptFile);
 $("#browse-server-files").addEventListener("click", () => loadScriptFiles(""));
 $("#script-file-input").addEventListener("change", event => {

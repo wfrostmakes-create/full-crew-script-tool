@@ -209,6 +209,35 @@ def serialize_text_script(script):
     return contents
 
 
+def preserve_script_metadata(script, previous_script):
+    previous_lines = {}
+    for previous in previous_script:
+        previous_lines.setdefault(previous["text"], []).append(previous)
+    matched_lines = {}
+    for line in script:
+        candidates = previous_lines.get(line["text"], [])
+        match_index = matched_lines.get(line["text"], 0)
+        if match_index >= len(candidates):
+            continue
+        previous = candidates[match_index]
+        matched_lines[line["text"]] = match_index + 1
+        line["id"] = previous["id"]
+        line["roles"] = previous.get("roles", []).copy()
+        line["important"] = previous.get("important", False)
+        matched_comments = set()
+        for comment in line["comments"]:
+            for index, previous_comment in enumerate(previous.get("comments", [])):
+                if (
+                    index not in matched_comments
+                    and comment["text"] == previous_comment["text"]
+                    and comment["roles"] == previous_comment["roles"]
+                ):
+                    comment["id"] = previous_comment["id"]
+                    comment["author"] = previous_comment.get("author", "")
+                    matched_comments.add(index)
+                    break
+
+
 def write_text_script(path, script):
     contents = serialize_text_script(script)
     temporary = None
@@ -457,6 +486,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.add_comment(payload)
             elif path == "/api/script-files/open":
                 self.open_script_file(payload)
+            elif path == "/api/script-files/reload":
+                self.reload_selected_script()
             elif path == "/api/script-files/upload":
                 self.upload_script_file(payload)
             elif path == "/api/script-files/create":
@@ -638,35 +669,10 @@ class RequestHandler(BaseHTTPRequestHandler):
             script = parse_text_script(file.read())
         with state_lock:
             if state.get("selected_file") == relative_script_path(path):
-                old_lines = state["script"]
-                for index, line in enumerate(script):
-                    if index >= len(old_lines) or line["text"] != old_lines[index]["text"]:
-                        continue
-                    previous = old_lines[index]
-                    line["roles"] = previous.get("roles", [])
-                    line["important"] = previous.get("important", False)
-                    for comment in line["comments"]:
-                        old_comment = next((
-                            item for item in previous.get("comments", [])
-                            if item["text"] == comment["text"] and item["roles"] == comment["roles"]
-                        ), None)
-                        if old_comment:
-                            comment["author"] = old_comment.get("author", "")
-                            comment["id"] = old_comment["id"]
+                preserve_script_metadata(script, state["script"])
             state["selected_file"] = relative_script_path(path)
             state["selected_name"] = path.name
-            known_roles = {role.casefold(): role for role in state["roles"]}
-            for line in script:
-                for comment in line["comments"]:
-                    normalized_roles = []
-                    for role in comment["roles"]:
-                        normalized_role = known_roles.get(role.casefold())
-                        if normalized_role is None:
-                            normalized_role = role
-                            state["roles"].append(role)
-                            known_roles[role.casefold()] = role
-                        normalized_roles.append(normalized_role)
-                    comment["roles"] = normalized_roles
+            self.normalize_script_roles(script)
             state["script"] = script
             state["playhead"] = {
                 "lineId": script[0]["id"] if script else None,
@@ -680,6 +686,57 @@ class RequestHandler(BaseHTTPRequestHandler):
             "script": state["script"],
             "playhead": state["playhead"],
         })
+
+    def normalize_script_roles(self, script):
+        known_roles = {role.casefold(): role for role in state["roles"]}
+        for line in script:
+            for comment in line["comments"]:
+                normalized_roles = []
+                for role in comment["roles"]:
+                    normalized_role = known_roles.get(role.casefold())
+                    if normalized_role is None:
+                        normalized_role = role
+                        state["roles"].append(role)
+                        known_roles[role.casefold()] = role
+                    normalized_roles.append(normalized_role)
+                comment["roles"] = normalized_roles
+
+    def reload_selected_script(self):
+        if not self.require_user():
+            return
+        with state_lock:
+            selected_file = state.get("selected_file", "")
+            if not selected_file:
+                self.send_json(HTTPStatus.OK, {"ok": True, "reloaded": False})
+                return
+            try:
+                path = resolve_selected_script_path(selected_file)
+                with path.open("r", encoding="utf-8-sig", newline=None) as file:
+                    script = parse_text_script(file.read())
+            except OSError as error:
+                raise ValueError("The selected script file could not be read.") from error
+            preserve_script_metadata(script, state["script"])
+            self.normalize_script_roles(script)
+            previous_line_id = state["playhead"]["lineId"]
+            next_line_id = previous_line_id if any(
+                line["id"] == previous_line_id for line in script
+            ) else (script[0]["id"] if script else None)
+            state["script"] = script
+            state["playhead"] = {
+                "lineId": next_line_id,
+                "sequence": state["playhead"]["sequence"] + (
+                    1 if next_line_id != previous_line_id else 0
+                ),
+            }
+            save_state()
+            result = {
+                "ok": True,
+                "reloaded": True,
+                "selectedFile": selected_file,
+                "selectedName": state.get("selected_name", ""),
+                "playhead": state["playhead"],
+            }
+        self.send_json(HTTPStatus.OK, result)
 
     def upload_script_file(self, payload):
         if not self.require_admin():
@@ -707,18 +764,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         with state_lock:
             state["selected_file"] = f"@upload/{filename}"
             state["selected_name"] = name.strip()
-            known_roles = {role.casefold(): role for role in state["roles"]}
-            for line in script:
-                for comment in line["comments"]:
-                    normalized_roles = []
-                    for role in comment["roles"]:
-                        normalized_role = known_roles.get(role.casefold())
-                        if normalized_role is None:
-                            normalized_role = role
-                            state["roles"].append(role)
-                            known_roles[role.casefold()] = role
-                        normalized_roles.append(normalized_role)
-                    comment["roles"] = normalized_roles
+            self.normalize_script_roles(script)
             state["script"] = script
             state["playhead"] = {
                 "lineId": script[0]["id"] if script else None,
