@@ -89,6 +89,22 @@ h2 { letter-spacing: -.4px; }
 .empty-state h2 { color: var(--text); font-size: 20px; margin: 18px 0 6px; }
 .empty-state p { line-height: 1.6; margin-bottom: 20px; }
 .script-list { max-width: 890px; margin: 0 auto; display: grid; gap: 15px; }
+.script-file-controls { max-width: 890px; margin: -12px auto 22px; }
+.script-file-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 15px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.script-file-bar > div:first-child { display: grid; min-width: 0; gap: 4px; }
+.file-label { color: var(--muted); font: 10px 'DM Mono', monospace; letter-spacing: 1px; }
+.script-file-bar strong { overflow: hidden; color: var(--text); font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.file-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+.file-actions button { padding: 8px 11px; }
+.script-file-browser { margin-top: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.file-browser-heading { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.file-browser-heading > span { flex: 1; overflow: hidden; color: var(--muted); font: 12px 'DM Mono', monospace; text-overflow: ellipsis; white-space: nowrap; }
+.file-browser-heading .icon-button { padding: 0 5px; }
+.script-file-entries { display: grid; max-height: 260px; overflow: auto; padding-top: 6px; }
+.file-entry { display: flex; align-items: center; gap: 10px; padding: 9px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--text); text-align: left; }
+.file-entry:hover { background: var(--surface-raised); }
+.file-entry-icon { width: 30px; color: var(--accent); font: 10px 'DM Mono', monospace; text-align: center; }
+.folder-entry .file-entry-icon { font-size: 18px; }
 .script-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 19px 22px; scroll-margin: 38vh 0; transition: border-color .2s, box-shadow .2s; }
 .script-card.live-line { border-color: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
 .script-card.important-line { border-left: 3px solid var(--warning); }
@@ -165,6 +181,8 @@ input:focus, select:focus, .comment-input:focus { border-color: var(--accent); }
   .settings-panel { top: 58px; }
   .script-card { padding: 15px; }
   .script-toolbar { margin-bottom: 20px; }
+  .script-file-controls { margin-top: -6px; }
+  .script-file-bar { align-items: flex-start; flex-direction: column; }
   h1 { font-size: 21px; }
   .user-name { max-width: 74px; overflow: hidden; text-overflow: ellipsis; }
 }

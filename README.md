@@ -30,7 +30,18 @@ To move the production to another host, stop the server and copy `data/state.jso
 
 ## Use the teleprompter
 
-- Sign in, then add script lines as an administrator. Lines can be reordered with the up/down controls.
+- Sign in as an administrator and use **Choose file** to browse the server machine's system drive for `.txt` scripts, or **New .txt** to create a script. The selected file is the live script for everyone. Administrators can open or create scripts in any folder on that drive; only `.txt` files are listed and opened.
+- Script files are plain text: each ordinary line is a cue, and a role-targeted note goes on the next line in the format `N (note text)role1,role2`. For example:
+
+  ```text
+  will: hi
+  N (lights up)lights,director
+  Next line
+  ```
+
+  The note belongs to the cue immediately above it and is not a cue itself. Role names in note lines are comma-separated; roles found in notes are added to the production's role list. Adding or editing cues and notes in Script Cue updates the selected `.txt` file. Keep each cue and note on one physical line.
+- Script file access is on the computer running `server.py`, not on the browser device. Treat administrator access as trusted: an administrator can read and write `.txt` files anywhere on the server's system drive. Back up files before editing them in Script Cue.
+- Lines can be reordered with the up/down controls.
 - Select roles on a line to mark its intended audience. Each person independently chooses which roles to display.
 - Add comments to a line and select the roles the note applies to. Mark important cues to show a warning when a visible line is brought live.
 - Press the up/down arrow keys to advance or rewind the shared live cue. Scrolling by touch, wheel, trackpad, or scrollbar moves only your own view. Use **Jump back to live cue** to resync.

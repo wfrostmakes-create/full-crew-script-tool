@@ -2,8 +2,10 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import socket
+import tempfile
 import threading
 import time
 import uuid
@@ -11,7 +13,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 
 ROOT = Path(__file__).parent
@@ -21,6 +23,8 @@ SESSION_COOKIE = "script_session"
 SESSION_TTL = 60 * 60 * 24 * 7
 PASSWORD_ITERATIONS = 310_000
 DEFAULT_ROLES = ["Actor", "Director", "Stage Manager", "Crew"]
+FILE_ROOT = Path(os.environ.get("SystemDrive", Path(__file__).anchor) + os.sep).resolve()
+NOTE_LINE = re.compile(r"^N \((.*)\)(.*)$")
 sessions = {}
 state_lock = threading.RLock()
 
@@ -99,6 +103,117 @@ def normalize_script(script):
     return normalized
 
 
+def resolve_script_path(relative_path, allow_directory=False):
+    if not isinstance(relative_path, str) or "\0" in relative_path:
+        raise ValueError("Choose a valid path on the server's system drive.")
+    candidate = Path(relative_path)
+    if candidate.is_absolute():
+        raise ValueError("Paths must be relative to the server's system drive.")
+    try:
+        resolved = (FILE_ROOT / candidate).resolve()
+    except (OSError, RuntimeError) as error:
+        raise ValueError("The selected path cannot be accessed.") from error
+    if not resolved.is_relative_to(FILE_ROOT):
+        raise ValueError("The selected path must stay on the server's system drive.")
+    if allow_directory and not resolved.is_dir():
+        raise ValueError("That folder does not exist or cannot be accessed.")
+    if not allow_directory and (resolved.suffix.casefold() != ".txt" or not resolved.is_file()):
+        raise ValueError("Choose an existing .txt script file.")
+    return resolved
+
+
+def relative_script_path(path):
+    relative = path.relative_to(FILE_ROOT).as_posix()
+    return "" if relative == "." else relative
+
+
+def parse_text_script(contents):
+    if len(contents) > 1_000_000:
+        raise ValueError("Script files must be 1 MB or smaller.")
+    script = []
+    line_count = 0
+    for text in contents.splitlines():
+        note_match = NOTE_LINE.fullmatch(text)
+        if note_match:
+            if not script:
+                raise ValueError("A note line must follow a script line.")
+            note_text, roles_text = note_match.groups()
+            roles = [role.strip() for role in roles_text.split(",") if role.strip()]
+            if not note_text.strip() or len(note_text) > 2000 or len(roles) > 20 or any(
+                len(role) > 40 or ")" in role for role in roles
+            ):
+                raise ValueError("Note lines must have valid note text and role names.")
+            if len(script[-1]["comments"]) >= 200:
+                raise ValueError("A script line can have at most 200 note lines.")
+            script[-1]["comments"].append({
+                "id": uuid.uuid4().hex,
+                "text": note_text,
+                "roles": roles,
+                "author": "",
+            })
+        elif text.startswith("N ("):
+            raise ValueError("A note line must use the format N (note text)role1,role2.")
+        else:
+            if len(text) > 5000:
+                raise ValueError("Script lines must be 5,000 characters or fewer.")
+            line_count += 1
+            if line_count > 5000:
+                raise ValueError("Script files can have at most 5,000 cue lines.")
+            script.append({
+                "id": uuid.uuid4().hex,
+                "text": text,
+                "roles": [],
+                "important": False,
+                "comments": [],
+            })
+    return script
+
+
+def serialize_text_script(script):
+    output = []
+    for line in script:
+        text = line["text"]
+        if "\n" in text or "\r" in text:
+            raise ValueError("Each script cue must fit on one line.")
+        if text.startswith("N (") and NOTE_LINE.fullmatch(text):
+            raise ValueError("Script cue lines cannot use the reserved note-line format.")
+        output.append(text)
+        for comment in line["comments"]:
+            note_text = comment["text"]
+            roles = comment["roles"]
+            if "\n" in note_text or "\r" in note_text or any(
+                not role or "," in role or "\n" in role or "\r" in role or ")" in role
+                for role in roles
+            ):
+                raise ValueError("Notes and roles must fit the plain-text note format.")
+            output.append(f"N ({note_text}){','.join(roles)}")
+    contents = "\n".join(output)
+    if len(contents) > 1_000_000:
+        raise ValueError("Script files must be 1 MB or smaller.")
+    return contents
+
+
+def write_text_script(path, script):
+    contents = serialize_text_script(script)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=path.parent,
+            prefix=".script-cue-",
+            suffix=".tmp",
+            delete=False,
+        ) as file:
+            temporary = Path(file.name)
+            file.write(contents)
+        os.replace(temporary, path)
+    finally:
+        if temporary and temporary.exists():
+            temporary.unlink()
+
+
 def load_state():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if STATE_FILE.exists():
@@ -109,6 +224,7 @@ def load_state():
         loaded.setdefault("roles", DEFAULT_ROLES.copy())
         loaded.setdefault("script", [])
         loaded.setdefault("playhead", {"lineId": None, "sequence": 0})
+        loaded.setdefault("selected_file", "")
         return loaded
 
     password = os.environ.get("ROOT_PASSWORD", "")
@@ -129,6 +245,7 @@ def load_state():
         "roles": DEFAULT_ROLES.copy(),
         "script": [],
         "playhead": {"lineId": None, "sequence": 0},
+        "selected_file": "",
     }
 
 
@@ -209,7 +326,46 @@ class RequestHandler(BaseHTTPRequestHandler):
         return user
 
     def do_GET(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path == "/api/script-files":
+            if not self.require_admin():
+                return
+            try:
+                directory = resolve_script_path(
+                    parse_qs(parsed.query).get("path", [""])[0],
+                    allow_directory=True,
+                )
+                entries = []
+                for item in directory.iterdir():
+                    try:
+                        resolved = item.resolve()
+                    except (OSError, RuntimeError) as error:
+                        raise ValueError(f"Could not inspect {item.name}.") from error
+                    if not resolved.is_relative_to(FILE_ROOT):
+                        continue
+                    if resolved.is_dir():
+                        entries.append({
+                            "name": item.name,
+                            "path": relative_script_path(resolved),
+                            "directory": True,
+                        })
+                    elif resolved.is_file() and resolved.suffix.casefold() == ".txt":
+                        entries.append({
+                            "name": item.name,
+                            "path": relative_script_path(resolved),
+                            "directory": False,
+                        })
+                entries.sort(key=lambda item: (not item["directory"], item["name"].casefold()))
+                self.send_json(HTTPStatus.OK, {
+                    "path": relative_script_path(directory),
+                    "parent": relative_script_path(directory.parent) if directory != FILE_ROOT else None,
+                    "entries": entries,
+                    "selectedFile": state.get("selected_file", ""),
+                })
+            except (OSError, ValueError) as error:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
         if path == "/api/me":
             user = self.get_user()
             self.send_json(HTTPStatus.OK, {
@@ -226,6 +382,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     "script": state["script"],
                     "roles": state["roles"],
                     "playhead": state["playhead"],
+                    "selectedFile": state.get("selected_file", ""),
                     "users": [
                         self.public_user(item) for item in state["users"]
                     ] if user.get("admin") else [],
@@ -279,6 +436,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.scroll(payload)
             elif path == "/api/comments":
                 self.add_comment(payload)
+            elif path == "/api/script-files/open":
+                self.open_script_file(payload)
+            elif path == "/api/script-files/create":
+                self.create_script_file(payload)
             else:
                 self.send_json(HTTPStatus.NOT_FOUND, {"error": "Not found."})
         except ValueError as error:
@@ -386,8 +547,13 @@ class RequestHandler(BaseHTTPRequestHandler):
         if not self.require_admin():
             return
         role = payload.get("role", "")
-        if not isinstance(role, str) or not role.strip() or len(role.strip()) > 40:
-            raise ValueError("Role names must be between 1 and 40 characters.")
+        if (
+            not isinstance(role, str)
+            or not role.strip()
+            or len(role.strip()) > 40
+            or any(character in role for character in ",)\r\n")
+        ):
+            raise ValueError("Role names must be 1 to 40 characters and cannot contain commas or closing parentheses.")
         with state_lock:
             if any(item.casefold() == role.strip().casefold() for item in state["roles"]):
                 raise ValueError("That role already exists.")
@@ -424,14 +590,112 @@ class RequestHandler(BaseHTTPRequestHandler):
             line = next((item for item in state["script"] if item["id"] == line_id), None)
             if not line:
                 raise ValueError("That script line no longer exists.")
-            line["comments"].append({
+            comment = {
                 "id": uuid.uuid4().hex,
                 "text": text.strip(),
                 "roles": roles,
                 "author": user["username"],
-            })
+            }
+            if state.get("selected_file"):
+                path = resolve_script_path(state["selected_file"])
+                updated_script = [
+                    {**item, "comments": item["comments"].copy()}
+                    for item in state["script"]
+                ]
+                updated_line = next(item for item in updated_script if item["id"] == line_id)
+                updated_line["comments"].append(comment)
+                write_text_script(path, updated_script)
+                line["comments"].append(comment)
             save_state()
         self.send_json(HTTPStatus.CREATED, {"ok": True})
+
+    def open_script_file(self, payload):
+        if not self.require_admin():
+            return
+        path = resolve_script_path(payload.get("path"))
+        with path.open("r", encoding="utf-8-sig", newline=None) as file:
+            script = parse_text_script(file.read())
+        with state_lock:
+            if state.get("selected_file") == relative_script_path(path):
+                old_lines = state["script"]
+                for index, line in enumerate(script):
+                    if index >= len(old_lines) or line["text"] != old_lines[index]["text"]:
+                        continue
+                    previous = old_lines[index]
+                    line["roles"] = previous.get("roles", [])
+                    line["important"] = previous.get("important", False)
+                    for comment in line["comments"]:
+                        old_comment = next((
+                            item for item in previous.get("comments", [])
+                            if item["text"] == comment["text"] and item["roles"] == comment["roles"]
+                        ), None)
+                        if old_comment:
+                            comment["author"] = old_comment.get("author", "")
+                            comment["id"] = old_comment["id"]
+            state["selected_file"] = relative_script_path(path)
+            known_roles = {role.casefold(): role for role in state["roles"]}
+            for line in script:
+                for comment in line["comments"]:
+                    normalized_roles = []
+                    for role in comment["roles"]:
+                        normalized_role = known_roles.get(role.casefold())
+                        if normalized_role is None:
+                            normalized_role = role
+                            state["roles"].append(role)
+                            known_roles[role.casefold()] = role
+                        normalized_roles.append(normalized_role)
+                    comment["roles"] = normalized_roles
+            state["script"] = script
+            state["playhead"] = {
+                "lineId": script[0]["id"] if script else None,
+                "sequence": state["playhead"]["sequence"] + 1,
+            }
+            save_state()
+        self.send_json(HTTPStatus.OK, {
+            "ok": True,
+            "selectedFile": state["selected_file"],
+            "script": state["script"],
+            "playhead": state["playhead"],
+        })
+
+    def create_script_file(self, payload):
+        if not self.require_admin():
+            return
+        directory = resolve_script_path(payload.get("directory", ""), allow_directory=True)
+        name = payload.get("name", "")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Enter a name for the new script.")
+        name = name.strip()
+        if (
+            Path(name).name != name
+            or name in (".", "..")
+            or any(character in name for character in '\\/:*?"<>|\r\n\0')
+        ):
+            raise ValueError("Enter a file name, not a folder path.")
+        if Path(name).suffix.casefold() != ".txt":
+            name += ".txt"
+        path = (directory / name).resolve()
+        if not path.is_relative_to(FILE_ROOT) or path.suffix.casefold() != ".txt":
+            raise ValueError("Choose a .txt file on the server's system drive.")
+        if path.exists():
+            raise ValueError("A file with that name already exists.")
+        path.parent.mkdir(parents=False, exist_ok=True)
+        with path.open("x", encoding="utf-8", newline="\n") as file:
+            file.write("")
+        with state_lock:
+            state["selected_file"] = relative_script_path(path)
+            state["script"] = []
+            state["playhead"] = {
+                "lineId": None,
+                "sequence": state["playhead"]["sequence"] + 1,
+            }
+            save_state()
+        self.send_json(HTTPStatus.CREATED, {
+            "ok": True,
+            "selectedFile": state["selected_file"],
+            "script": [],
+            "playhead": state["playhead"],
+        })
 
     def do_PUT(self):
         if urlparse(self.path).path != "/api/script":
@@ -444,6 +708,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             script = normalize_script(payload.get("script"))
             with state_lock:
                 role_set = set(state["roles"])
+                if state.get("selected_file") and payload.get("selectedFile") != state["selected_file"]:
+                    raise ValueError("The live script file changed. Reopen it before saving your edits.")
                 if any(
                     role not in role_set
                     for line in script
@@ -452,6 +718,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                     ]
                 ):
                     raise ValueError("Script lines and comments can only use existing roles.")
+                if state.get("selected_file"):
+                    write_text_script(resolve_script_path(state["selected_file"]), script)
                 state["script"] = script
                 if state["playhead"]["lineId"] and not any(
                     line["id"] == state["playhead"]["lineId"] for line in script
