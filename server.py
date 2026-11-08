@@ -866,7 +866,7 @@ def local_addresses():
 
 
 if __name__ == "__main__":
-    host = os.environ.get("HOST", "127.0.0.1")
+    host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8080"))
     server = ThreadingHTTPServer((host, port), RequestHandler)
     print(f"Script teleprompter listening at http://localhost:{port}")
