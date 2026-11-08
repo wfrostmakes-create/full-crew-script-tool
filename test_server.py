@@ -100,6 +100,48 @@ class ScriptFileTests(unittest.TestCase):
         self.assertEqual(state["script"][0]["comments"][0]["text"], "lights up")
         self.assertIn("lights", state["roles"])
 
+    def test_reload_imports_server_file_edits_and_preserves_matching_cue_metadata(self):
+        path = server.FILE_ROOT / "scene.txt"
+        path.write_text("First cue\nSecond cue", encoding="utf-8")
+        self.request_json("/api/script-files/open", "POST", {"path": "scene.txt"})
+        _, state = self.request_json("/api/state")
+        first_line = state["script"][0]
+        previous_sequence = state["playhead"]["sequence"]
+        first_line["roles"] = ["Actor"]
+        first_line["important"] = True
+        self.request_json("/api/script", "PUT", {
+            "selectedFile": "scene.txt",
+            "script": state["script"],
+        })
+
+        path.write_text("Added cue\nFirst cue\nSecond cue\nN (lights up)lights", encoding="utf-8")
+        status, result = self.request_json("/api/script-files/reload", "POST", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(result["reloaded"])
+        _, state = self.request_json("/api/state")
+        self.assertEqual([line["text"] for line in state["script"]], [
+            "Added cue", "First cue", "Second cue",
+        ])
+        self.assertEqual(state["script"][1]["roles"], ["Actor"])
+        self.assertTrue(state["script"][1]["important"])
+        self.assertEqual(state["script"][2]["comments"][0]["text"], "lights up")
+        self.assertEqual(state["playhead"]["sequence"], previous_sequence)
+
+    def test_reload_imports_edits_to_uploaded_server_copy(self):
+        _, opened = self.request_json("/api/script-files/upload", "POST", {
+            "name": "local-script.txt",
+            "contents": "Original cue",
+        })
+        path = server.resolve_selected_script_path(opened["selectedFile"])
+        path.write_text("Updated cue\nNext cue", encoding="utf-8")
+
+        _, result = self.request_json("/api/script-files/reload", "POST", {})
+        self.assertTrue(result["reloaded"])
+        _, state = self.request_json("/api/state")
+        self.assertEqual(
+            [line["text"] for line in state["script"]],
+            ["Updated cue", "Next cue"],
+        )
     def test_admin_can_open_empty_text_file_with_spaces_in_path(self):
         show_folder = server.FILE_ROOT / "church-show-files"
         show_folder.mkdir()
@@ -183,6 +225,9 @@ class ScriptFileTests(unittest.TestCase):
         self.assertEqual(error.exception.code, 400)
 
     def test_only_admins_can_browse_script_files(self):
+        selected_path = server.FILE_ROOT / "viewer-reload.txt"
+        selected_path.write_text("Before reload", encoding="utf-8")
+        self.request_json("/api/script-files/open", "POST", {"path": "viewer-reload.txt"})
         self.request_json("/api/users", "POST", {
             "username": "viewer",
             "password": "viewer-password-long-enough",
@@ -202,6 +247,18 @@ class ScriptFileTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as error:
             viewer_opener.open(self.base_url + "/api/script-files")
         self.assertEqual(error.exception.code, 403)
+
+        selected_path.write_text("After reload", encoding="utf-8")
+        reload_request = Request(
+            self.base_url + "/api/script-files/reload",
+            data=b"{}",
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        viewer_opener.open(reload_request).close()
+        with viewer_opener.open(self.base_url + "/api/state") as response:
+            state = json.loads(response.read())
+        self.assertEqual(state["script"][0]["text"], "After reload")
 
 
 if __name__ == "__main__":

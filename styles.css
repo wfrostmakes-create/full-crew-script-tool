@@ -74,7 +74,8 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .checkbox-item, .small-checkbox { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; cursor: pointer; }
 input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent-strong); }
 .main-content { min-width: 0; height: calc(100vh - 68px); overflow: auto; padding: 36px clamp(22px, 5vw, 72px) 90px; }
-.script-toolbar { display: flex; align-items: center; justify-content: space-between; max-width: 890px; margin: 0 auto 30px; }
+.script-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 890px; margin: 0 auto 30px; }
+.script-toolbar-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .eyebrow { color: var(--accent); font: 500 10px 'DM Mono', monospace; letter-spacing: 1.6px; margin: 0 0 8px; }
 h1 { margin: 0; font-size: 24px; letter-spacing: -.6px; }
 h2 { letter-spacing: -.4px; }
@@ -109,7 +110,9 @@ h2 { letter-spacing: -.4px; }
 .script-card.live-line { border-color: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
 .script-card.important-line { border-left: 3px solid var(--warning); }
 .line-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-.cue-number { color: var(--muted); font: 11px 'DM Mono', monospace; }
+.cue-number { flex: 0 0 28px; padding-top: 7px; color: var(--muted); font: 11px 'DM Mono', monospace; text-align: right; }
+.line-body { display: flex; align-items: flex-start; gap: 12px; }
+.line-body .line-editor, .line-body .script-text { flex: 1; min-width: 0; }
 .line-tags, .comment-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .role-tag, .important-tag { padding: 4px 7px; border-radius: 5px; background: var(--surface-raised); color: var(--muted); font-size: 10px; }
 .important-tag { background: color-mix(in srgb, var(--warning) 15%, var(--surface-raised)); color: var(--warning); }
@@ -127,6 +130,9 @@ h2 { letter-spacing: -.4px; }
 .delete-button { color: #f08f8f; }
 .comment-list { display: grid; gap: 8px; margin: 13px 0; }
 .comment { padding: 10px 12px; border-radius: 7px; border-left: 2px solid var(--accent); background: var(--surface-raised); }
+.compact-note { padding-top: 6px; padding-bottom: 6px; }
+.compact-note .comment-head { display: none; }
+.compact-note p { overflow: hidden; margin: 0; color: var(--accent); text-overflow: ellipsis; white-space: nowrap; }
 .comment-head { font-size: 11px; }
 .comment-head strong { margin-right: 4px; }
 .comment p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
@@ -181,6 +187,8 @@ input:focus, select:focus, .comment-input:focus { border-color: var(--accent); }
   .settings-panel { top: 58px; }
   .script-card { padding: 15px; }
   .script-toolbar { margin-bottom: 20px; }
+  .script-toolbar-actions { flex-direction: column; align-items: stretch; }
+  .script-toolbar-actions button { padding: 8px 10px; }
   .script-file-controls { margin-top: -6px; }
   .script-file-bar { align-items: flex-start; flex-direction: column; }
   h1 { font-size: 21px; }

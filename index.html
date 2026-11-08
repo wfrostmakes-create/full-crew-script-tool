@@ -60,16 +60,22 @@
         <section class="main-content">
           <div class="script-toolbar">
             <div><p class="eyebrow">LIVE SCRIPT</p><h1>Your production</h1></div>
-            <button id="add-line" class="primary" hidden>＋ Add a line</button>
+            <div class="script-toolbar-actions">
+              <button id="toggle-compact-notes" class="secondary" type="button" aria-pressed="false">Compact notes: Off</button>
+              <button id="add-line" class="primary" hidden>＋ Add a line</button>
+            </div>
           </div>
           <section id="script-file-controls" class="script-file-controls">
             <div class="script-file-bar">
               <div><span class="file-label">LIVE FILE</span><strong id="selected-file">No text file selected</strong></div>
-              <div id="script-file-admin-actions" class="file-actions" hidden>
-                <button id="browse-script-files" class="secondary" type="button">Choose text file…</button>
-                <button id="browse-server-files" class="secondary" type="button">Browse server</button>
-                <button id="create-script-file" class="secondary" type="button">New .txt</button>
-                <input id="script-file-input" type="file" accept=".txt,text/plain" hidden>
+              <div class="file-actions">
+                <button id="reload-script-file" class="secondary" type="button" hidden>↻ Reload file</button>
+                <div id="script-file-admin-actions" class="file-actions" hidden>
+                  <button id="browse-script-files" class="secondary" type="button">Choose text file…</button>
+                  <button id="browse-server-files" class="secondary" type="button">Browse server</button>
+                  <button id="create-script-file" class="secondary" type="button">New .txt</button>
+                  <input id="script-file-input" type="file" accept=".txt,text/plain" hidden>
+                </div>
               </div>
             </div>
             <div id="script-file-browser" class="script-file-browser" hidden>
