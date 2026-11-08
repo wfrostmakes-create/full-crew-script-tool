@@ -8,12 +8,11 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import HTTPCookieProcessor, Request, build_opener
+from unittest import mock
 
 
 _test_data = tempfile.TemporaryDirectory()
 os.environ["SCRIPT_TOOL_DATA_DIR"] = _test_data.name
-os.environ["ROOT_PASSWORD"] = "test-password-long-enough"
-
 import server
 
 
@@ -74,6 +73,16 @@ class ScriptFileTests(unittest.TestCase):
         self.assertEqual(script[0]["comments"][0]["text"], "lights up")
         self.assertEqual(script[0]["comments"][0]["roles"], ["lights", "Director"])
         self.assertEqual(server.serialize_text_script(script), contents)
+
+    def test_first_run_uses_root_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data_dir = Path(directory)
+            with mock.patch.object(server, "DATA_DIR", data_dir), \
+                    mock.patch.object(server, "STATE_FILE", data_dir / "state.json"):
+                initial = server.load_state()
+        admin = initial["users"][0]
+        self.assertEqual(admin["username"], "root")
+        self.assertTrue(server.verify_password("root", admin["password"]))
 
     def test_admin_can_browse_open_and_create_text_files(self):
         show_folder = server.FILE_ROOT / "Shows"
@@ -259,6 +268,46 @@ class ScriptFileTests(unittest.TestCase):
         with viewer_opener.open(self.base_url + "/api/state") as response:
             state = json.loads(response.read())
         self.assertEqual(state["script"][0]["text"], "After reload")
+
+    def test_short_passwords_are_accepted_but_empty_passwords_are_rejected(self):
+        self.request_json("/api/users", "POST", {
+            "username": "short-password-user",
+            "password": "x",
+            "roles": ["Actor"],
+        })
+
+        short_password_opener = build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        login = Request(
+            self.base_url + "/api/login",
+            data=json.dumps({
+                "username": "short-password-user",
+                "password": "x",
+            }).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        short_password_opener.open(login).close()
+
+        with self.assertRaises(HTTPError) as error:
+            self.request_json("/api/users", "POST", {
+                "username": "empty-password-user",
+                "password": "",
+                "roles": ["Actor"],
+            })
+        self.assertEqual(error.exception.code, 400)
+
+        self.request_json("/api/account/password", "POST", {
+            "oldPassword": "test-password-long-enough",
+            "newPassword": "r",
+        })
+        replacement_opener = build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        replacement_login = Request(
+            self.base_url + "/api/login",
+            data=json.dumps({"username": "root", "password": "r"}).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        replacement_opener.open(replacement_login).close()
 
 
 if __name__ == "__main__":

@@ -23,6 +23,8 @@ UPLOAD_DIR = DATA_DIR / "scripts"
 SESSION_COOKIE = "script_session"
 SESSION_TTL = 60 * 60 * 24 * 7
 PASSWORD_ITERATIONS = 310_000
+ROOT_USERNAME = "root"
+ROOT_PASSWORD = "root"
 DEFAULT_ROLES = ["Actor", "Director", "Stage Manager", "Crew"]
 FILE_ROOT = Path(os.environ.get("SystemDrive", Path(__file__).anchor) + os.sep).resolve()
 NOTE_LINE = re.compile(r"^N \((.*)\)(.*)$")
@@ -273,19 +275,10 @@ def load_state():
         loaded.setdefault("selected_name", "")
         return loaded
 
-    # Use this only to create the initial administrator; saved passwords are hashed.
-    password = os.environ.get("ROOT_PASSWORD", "")
-    if len(password) < 12:
-        raise RuntimeError(
-            "Set ROOT_PASSWORD to a password of at least 12 characters before first run."
-        )
-    username = os.environ.get("ROOT_USERNAME", "root").strip()
-    if not username:
-        raise RuntimeError("ROOT_USERNAME cannot be empty.")
     return {
         "users": [{
-            "username": username,
-            "password": hash_password(password),
+            "username": ROOT_USERNAME,
+            "password": hash_password(ROOT_PASSWORD),
             "roles": DEFAULT_ROLES.copy(),
             "admin": True,
         }],
@@ -541,8 +534,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         if not isinstance(old_password, str) or not verify_password(old_password, user["password"]):
             self.send_json(HTTPStatus.FORBIDDEN, {"error": "Current password is incorrect."})
             return
-        if not isinstance(new_password, str) or len(new_password) < 12:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "New passwords must be at least 12 characters."})
+        if not isinstance(new_password, str) or not new_password:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "New password cannot be empty."})
             return
         with state_lock:
             user["password"] = hash_password(new_password)
@@ -580,8 +573,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         roles = payload.get("roles", [])
         if not isinstance(username, str) or not username.strip() or len(username.strip()) > 40:
             raise ValueError("Username must be between 1 and 40 characters.")
-        if not isinstance(password, str) or len(password) < 12:
-            raise ValueError("Passwords must be at least 12 characters.")
+        if not isinstance(password, str) or not password:
+            raise ValueError("Password cannot be empty.")
         if not isinstance(roles, list) or not all(isinstance(role, str) and role in state["roles"] for role in roles):
             raise ValueError("Choose valid roles for this user.")
         with state_lock:
@@ -873,12 +866,13 @@ def local_addresses():
 
 
 if __name__ == "__main__":
-    host = os.environ.get("HOST", "0.0.0.0")
+    host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8080"))
     server = ThreadingHTTPServer((host, port), RequestHandler)
     print(f"Script teleprompter listening at http://localhost:{port}")
-    for address in local_addresses():
-        print(f"On your network: http://{address}:{port}")
+    if host not in ("127.0.0.1", "localhost"):
+        for address in local_addresses():
+            print(f"On your network: http://{address}:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

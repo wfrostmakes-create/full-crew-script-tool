@@ -6,25 +6,17 @@ A lightweight, self-hosted script and teleprompter for productions. Script lines
 
 Requires Python 3.10 or later; there are no third-party packages.
 
-On first run, configure the initial administrator using environment variables. Passwords are never stored as plaintext; the server stores salted PBKDF2 password hashes in `data/state.json`.
+On first run, the initial administrator credentials are `root` / `root`. Passwords must not be empty, but have no minimum length. Passwords are never stored as plaintext; the server stores salted PBKDF2 password hashes in `data/state.json`.
 
-PowerShell:
+Start the app in PowerShell:
 
 ```powershell
-$env:ROOT_USERNAME = "root"
-$env:ROOT_PASSWORD = "choose-a-unique-password-of-12-or-more-characters"
 python server.py
 ```
 
-macOS/Linux:
+By default, the server listens on `127.0.0.1:8080`, so only programs on this PC can connect. The built-in `root` / `root` credentials are insecure; do not expose this app to your network or the internet. To allow other devices to connect, set `HOST` to a network interface address (or `0.0.0.0`) and `PORT` to the desired port, and configure your firewall appropriately. Set `PORT` to override the default port.
 
-```sh
-ROOT_USERNAME=root ROOT_PASSWORD='choose-a-unique-password-of-12-or-more-characters' python3 server.py
-```
-
-By default, the server listens on port `8080` on all network interfaces and prints its available LAN addresses. Open the printed `http://<server-ip>:8080` address on other devices on the same network. Set `PORT` or `HOST` to override the defaults. Make sure the host firewall allows the chosen port. This built-in server is intended for a trusted private network; use a TLS reverse proxy and network access controls before exposing it to the public internet.
-
-The initial root account is created only when the data file does not exist. To change the password later, sign in and use **Settings → Change password**. The administrator can add user accounts and production roles from the sidebar. User passwords are not recoverable; an administrator should create a replacement account if a user loses their password.
+The initial root account is created only when the data file does not exist. To change the username or password later, sign in and use **Settings**. The administrator can add user accounts and production roles from the sidebar. User passwords are not recoverable; an administrator should create a replacement account if a user loses their password.
 
 To move the production to another host, stop the server and copy `data/state.json` securely. Do not commit that file: it contains account password hashes and production content.
 
