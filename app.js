@@ -11,7 +11,7 @@ const elements = {
 };
 
 let currentUser = null;
-let currentState = { script: [], roles: [], playhead: { lineId: null, sequence: 0 }, users: [], selectedFile: "" };
+let currentState = { script: [], roles: [], playhead: { lineId: null, sequence: 0 }, users: [], selectedFile: "", selectedName: "" };
 let selectedRoles = new Set();
 let followingLive = true;
 let dirty = false;
@@ -21,6 +21,7 @@ let lastPlayheadSequence = 0;
 let programmaticScroll = false;
 let renderedRoleSignature = "";
 let browserDirectory = "";
+let selectedFileHandle = null;
 
 function roleStorageKey() {
   return `script-cue-roles:${currentUser?.username || "default"}`;
@@ -47,6 +48,7 @@ function showToast(message) {
 
 function showLogin() {
   clearInterval(pollTimer);
+  selectedFileHandle = null;
   elements.app.hidden = true;
   elements.login.hidden = false;
 }
@@ -81,10 +83,13 @@ async function fetchState(initial) {
     const changedFile = data.selectedFile !== currentState.selectedFile;
     const localScript = currentState.script;
     const localFile = currentState.selectedFile;
+    const localName = currentState.selectedName;
+    if (changedFile) selectedFileHandle = null;
     currentState = data;
     if (dirty) {
       currentState.script = localScript;
       currentState.selectedFile = localFile;
+      currentState.selectedName = localName;
       const serverLines = new Map(data.script.map(line => [line.id, line]));
       currentState.script.forEach(line => {
         const savedLine = serverLines.get(line.id);
@@ -297,6 +302,7 @@ function makeCommentForm(line) {
     event.preventDefault();
     const roles = [...roleChecks.querySelectorAll("input:checked")].map(input => input.parentElement.textContent);
     try {
+      await requestSelectedFileWriteAccess();
       await request("/api/comments", {
         method: "POST",
         body: JSON.stringify({ lineId: line.id, text: textarea.value, roles }),
@@ -304,7 +310,15 @@ function makeCommentForm(line) {
       body.hidden = true;
       textarea.value = "";
       await fetchState(false);
-      showToast("Comment added");
+      if (!dirty) {
+        try {
+          await writeSelectedFileHandle();
+        } catch (error) {
+          showToast(`Note saved on the server, but the selected file could not be updated: ${error.message}`);
+          return;
+        }
+      }
+      showToast("Note added");
     } catch (error) {
       showToast(error.message);
     }
@@ -324,11 +338,18 @@ function updateSaveButton() {
 
 async function saveScript() {
   try {
+    await requestSelectedFileWriteAccess();
     await request("/api/script", {
       method: "PUT",
       body: JSON.stringify({ script: currentState.script, selectedFile: currentState.selectedFile }),
     });
     dirty = false;
+    try {
+      await writeSelectedFileHandle();
+    } catch (error) {
+      showToast(`Script saved on the server, but the selected file could not be updated: ${error.message}`);
+      return;
+    }
     showToast("Script saved");
     await fetchState(true);
   } catch (error) {
@@ -338,8 +359,9 @@ async function saveScript() {
 
 function renderSelectedFile() {
   const file = currentState.selectedFile;
-  $("#selected-file").textContent = file || "No text file selected";
-  $("#selected-file").title = file || "";
+  const name = currentState.selectedName || file;
+  $("#selected-file").textContent = name || "No text file selected";
+  $("#selected-file").title = name || "";
 }
 
 async function loadScriptFiles(directory = browserDirectory) {
@@ -379,12 +401,79 @@ async function openScriptFile(path) {
       method: "POST",
       body: JSON.stringify({ path }),
     });
+    selectedFileHandle = null;
     dirty = false;
     $("#script-file-browser").hidden = true;
     await fetchState(true);
     showToast("Script file opened");
   } catch (error) {
     showToast(error.message);
+  }
+}
+
+async function openLocalScriptFile() {
+  if (dirty && !confirm("Discard unsaved script changes and open another file?")) return;
+  const picker = document.querySelector("#script-file-input");
+  if (window.showOpenFilePicker) {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        multiple: false,
+        types: [{
+          description: "Text scripts",
+          accept: { "text/plain": [".txt"] },
+        }],
+      });
+      await importLocalScriptFile(await handle.getFile(), handle);
+    } catch (error) {
+      if (error.name !== "AbortError") showToast(error.message);
+    }
+    return;
+  }
+  picker.click();
+}
+
+async function importLocalScriptFile(file, fileHandle = null) {
+  if (!file || !file.name.toLowerCase().endsWith(".txt")) {
+    showToast("Choose a .txt script file.");
+    return;
+  }
+  selectedFileHandle = null;
+  try {
+    const contents = await file.text();
+    const result = await request("/api/script-files/upload", {
+      method: "POST",
+      body: JSON.stringify({ name: file.name, contents }),
+    });
+    dirty = false;
+    $("#script-file-browser").hidden = true;
+    await fetchState(true);
+    if (fileHandle && currentState.selectedFile === result.selectedFile) {
+      selectedFileHandle = fileHandle;
+    }
+    showToast(selectedFileHandle
+      ? "Script opened; edits will update the selected file"
+      : "Script uploaded; edits update the server copy");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function writeSelectedFileHandle() {
+  if (!selectedFileHandle) return;
+  const contents = currentState.script.flatMap(line => [
+    line.text,
+    ...(line.comments || []).map(comment => `N (${comment.text})${comment.roles.join(",")}`),
+  ]).join("\n");
+  const writable = await selectedFileHandle.createWritable();
+  await writable.write(contents);
+  await writable.close();
+}
+
+async function requestSelectedFileWriteAccess() {
+  if (!selectedFileHandle || !selectedFileHandle.requestPermission) return;
+  const permission = await selectedFileHandle.requestPermission({ mode: "readwrite" });
+  if (permission !== "granted") {
+    throw new Error("Write permission was not granted for the selected file.");
   }
 }
 
@@ -398,6 +487,7 @@ async function createScriptFile() {
       body: JSON.stringify({ directory: browserDirectory, name }),
     });
     dirty = false;
+    selectedFileHandle = null;
     $("#script-file-browser").hidden = true;
     await fetchState(true);
     showToast("Script file created");
@@ -522,7 +612,14 @@ $("#logout-button").addEventListener("click", async () => {
 
 $("#add-line").addEventListener("click", addLine);
 $("#empty-add-line").addEventListener("click", addLine);
-$("#browse-script-files").addEventListener("click", () => loadScriptFiles(""));
+$("#browse-script-files").addEventListener("click", openLocalScriptFile);
+$("#browse-server-files").addEventListener("click", () => loadScriptFiles(""));
+$("#script-file-input").addEventListener("change", event => {
+  const file = event.target.files[0];
+  if (file) selectedFileHandle = null;
+  importLocalScriptFile(file);
+  event.target.value = "";
+});
 $("#create-script-file").addEventListener("click", () => {
   if (!$("#script-file-browser").hidden) {
     createScriptFile();

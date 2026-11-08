@@ -30,7 +30,7 @@ To move the production to another host, stop the server and copy `data/state.jso
 
 ## Use the teleprompter
 
-- Sign in as an administrator and use **Choose file** to browse the server machine's system drive for `.txt` scripts, or **New .txt** to create a script. The selected file is the live script for everyone. Administrators can open or create scripts in any folder on that drive; only `.txt` files are listed and opened.
+- Sign in as an administrator and use **Choose text file…** to open your computer's file picker and choose a `.txt` script. In a supported browser on a secure origin, changes made in Script Cue are also written back to that selected file. To edit a file on the server computer directly, open the app there using `http://localhost:8080` in a supported browser. If direct file access is unavailable, the chosen file is uploaded and changes update the server-side copy instead. Use **Browse server** to select a file on the machine running the app, or **New .txt** to create a script there. The selected file is the live script for everyone.
 - Script files are plain text: each ordinary line is a cue, and a role-targeted note goes on the next line in the format `N (note text)role1,role2`. For example:
 
   ```text
@@ -39,8 +39,8 @@ To move the production to another host, stop the server and copy `data/state.jso
   Next line
   ```
 
-  The note belongs to the cue immediately above it and is not a cue itself. Role names in note lines are comma-separated; roles found in notes are added to the production's role list. Adding or editing cues and notes in Script Cue updates the selected `.txt` file. Keep each cue and note on one physical line.
-- Script file access is on the computer running `server.py`, not on the browser device. Treat administrator access as trusted: an administrator can read and write `.txt` files anywhere on the server's system drive. Back up files before editing them in Script Cue.
+  The note belongs to the cue immediately above it and is not a cue itself. Role names in note lines are comma-separated; roles found in notes are added to the production's role list. Adding or editing cues and notes in Script Cue updates the selected file (or its server-side copy when direct browser file access is unavailable). Keep each cue and note on one physical line.
+- **Browse server** operates on the computer running `server.py`; **Choose text file…** opens the browser device's picker. Treat administrator access as trusted and back up files before editing them in Script Cue.
 - Lines can be reordered with the up/down controls.
 - Select roles on a line to mark its intended audience. Each person independently chooses which roles to display.
 - Add comments to a line and select the roles the note applies to. Mark important cues to show a warning when a visible line is brought live.
