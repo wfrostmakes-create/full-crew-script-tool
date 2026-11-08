@@ -273,6 +273,7 @@ def load_state():
         loaded.setdefault("selected_name", "")
         return loaded
 
+    # Use this only to create the initial administrator; saved passwords are hashed.
     password = os.environ.get("ROOT_PASSWORD", "")
     if len(password) < 12:
         raise RuntimeError(
