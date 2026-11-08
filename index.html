@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#18191d">
+    <title>Script Cue</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main id="login-view" class="login-view" hidden>
+      <form id="login-form" class="login-card">
+        <p class="eyebrow">SCRIPT CUE</p>
+        <h1>Welcome back</h1>
+        <p class="muted">Sign in to open your production script.</p>
+        <label>Username<input name="username" autocomplete="username" required autofocus></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">Sign in</button>
+        <p id="login-error" class="form-error" role="alert"></p>
+      </form>
+    </main>
+    <div id="app" class="app" hidden>
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="Script Cue home"><span class="brand-mark">SC</span><span>Script Cue</span></a>
+        <div class="top-actions">
+          <span id="sync-status" class="sync-status">Connecting…</span>
+          <span id="user-name" class="user-name"></span>
+          <button id="settings-toggle" class="icon-button" aria-label="Open settings" title="Settings">⚙</button>
+          <button id="logout-button" class="quiet-button">Sign out</button>
+        </div>
+      </header>
+      <div class="workspace">
+        <aside class="sidebar">
+          <section class="side-section">
+            <div class="section-heading"><span>SHOW SCRIPT</span><span id="line-count" class="count"></span></div>
+            <div id="role-filters" class="role-filters"></div>
+            <p class="hint">Choose the roles you want to follow. This filter is personal.</p>
+          </section>
+          <section class="side-section">
+            <div class="section-heading">TELEPROMPTER</div>
+            <p class="hint">Use ↑ / ↓ to move the shared cue for everyone. Scroll normally for a private view.</p>
+            <button id="jump-live" class="secondary full-width" hidden>↗ Jump back to live cue</button>
+          </section>
+          <section id="admin-panel" class="side-section admin-panel" hidden>
+            <div class="section-heading">PRODUCTION SETUP</div>
+            <form id="add-role-form" class="compact-form">
+              <label for="new-role">Add a role</label>
+              <div class="inline-field"><input id="new-role" maxlength="40" placeholder="e.g. Lighting"><button class="secondary" type="submit">Add</button></div>
+            </form>
+            <form id="add-user-form" class="compact-form">
+              <label for="new-user">Add a user</label>
+              <input id="new-user" maxlength="40" placeholder="Username" required>
+              <input id="new-password" type="password" minlength="12" placeholder="Temporary password (12+ chars)" required>
+              <div id="new-user-roles" class="checkbox-list"></div>
+              <button class="secondary full-width" type="submit">Create account</button>
+            </form>
+            <div id="admin-message" class="hint" role="status"></div>
+          </section>
+        </aside>
+        <section class="main-content">
+          <div class="script-toolbar">
+            <div><p class="eyebrow">LIVE SCRIPT</p><h1>Your production</h1></div>
+            <button id="add-line" class="primary" hidden>＋ Add a line</button>
+          </div>
+          <div id="script-empty" class="empty-state" hidden>
+            <div class="empty-icon">✳</div><h2>The stage is yours</h2>
+            <p id="empty-copy">There are no script lines yet.</p>
+            <button id="empty-add-line" class="primary" hidden>Add the first line</button>
+          </div>
+          <div id="script-list" class="script-list"></div>
+        </section>
+        <aside id="settings-panel" class="settings-panel" hidden>
+          <div class="section-heading"><span>YOUR DISPLAY</span><button id="settings-close" class="icon-button" aria-label="Close settings">×</button></div>
+          <label for="theme-select">Theme</label>
+          <select id="theme-select"><option value="dark">Stage dark</option><option value="light">Studio light</option><option value="contrast">High contrast</option></select>
+          <label for="font-select">Script font</label>
+          <select id="font-select"><option value="Georgia">Georgia</option><option value="Arial">Arial</option><option value="Verdana">Verdana</option><option value="Courier New">Courier New</option><option value="system-ui">System</option></select>
+          <label for="size-range">Text size <span id="size-value">24 px</span></label>
+          <input id="size-range" type="range" min="18" max="48" step="1" value="24">
+          <hr>
+          <button id="change-username-toggle" class="secondary full-width">Change username</button>
+          <form id="change-username-form" class="compact-form" hidden>
+            <input id="new-username" maxlength="40" autocomplete="username" placeholder="New username" required>
+            <button class="primary full-width" type="submit">Update username</button>
+            <p id="username-message" class="hint" role="status"></p>
+          </form>
+          <hr>
+          <button id="change-password-toggle" class="secondary full-width">Change password</button>
+          <form id="change-password-form" class="compact-form" hidden>
+            <input id="old-password" type="password" autocomplete="current-password" placeholder="Current password" required>
+            <input id="password-one" type="password" autocomplete="new-password" minlength="12" placeholder="New password (12+ chars)" required>
+            <input id="password-two" type="password" autocomplete="new-password" minlength="12" placeholder="Repeat new password" required>
+            <button class="primary full-width" type="submit">Update password</button>
+            <p id="password-message" class="hint" role="status"></p>
+          </form>
+        </aside>
+      </div>
+      <div id="warning-modal" class="modal-backdrop" hidden>
+        <section class="warning-modal" role="alertdialog" aria-modal="true" aria-labelledby="warning-title">
+          <div class="warning-symbol">!</div><p class="eyebrow">IMPORTANT CUE</p>
+          <h2 id="warning-title">Important line</h2><p id="warning-text"></p>
+          <button id="warning-close" class="primary">Got it</button>
+        </section>
+      </div>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
