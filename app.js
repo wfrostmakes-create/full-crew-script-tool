@@ -11,7 +11,7 @@ const elements = {
 };
 
 let currentUser = null;
-let currentState = { script: [], roles: [], playhead: { lineId: null, sequence: 0 }, users: [] };
+let currentState = { script: [], roles: [], playhead: { lineId: null, sequence: 0 }, users: [], selectedFile: "" };
 let selectedRoles = new Set();
 let followingLive = true;
 let dirty = false;
@@ -20,6 +20,7 @@ let toastTimer;
 let lastPlayheadSequence = 0;
 let programmaticScroll = false;
 let renderedRoleSignature = "";
+let browserDirectory = "";
 
 function roleStorageKey() {
   return `script-cue-roles:${currentUser?.username || "default"}`;
@@ -62,8 +63,9 @@ function showApp(user) {
   elements.app.hidden = false;
   $("#user-name").textContent = user.username;
   $("#admin-panel").hidden = !user.admin;
-  $("#add-line").hidden = !user.admin;
-  $("#empty-add-line").hidden = !user.admin;
+  $("#script-file-admin-actions").hidden = !user.admin;
+  $("#add-line").hidden = !user.admin || !currentState.selectedFile;
+  $("#empty-add-line").hidden = !user.admin || !currentState.selectedFile;
   $("#sync-status").textContent = "Connected";
   applyPreferences();
   fetchState(true);
@@ -76,10 +78,13 @@ async function fetchState(initial) {
     const previousSequence = lastPlayheadSequence;
     const data = await request("/api/state");
     const changedScript = JSON.stringify(data.script) !== JSON.stringify(currentState.script);
+    const changedFile = data.selectedFile !== currentState.selectedFile;
     const localScript = currentState.script;
+    const localFile = currentState.selectedFile;
     currentState = data;
     if (dirty) {
       currentState.script = localScript;
+      currentState.selectedFile = localFile;
       const serverLines = new Map(data.script.map(line => [line.id, line]));
       currentState.script.forEach(line => {
         const savedLine = serverLines.get(line.id);
@@ -89,7 +94,10 @@ async function fetchState(initial) {
       currentState.script = data.script;
     }
     renderRoleFilters();
-    if (!dirty && (initial || changedScript)) renderScript();
+    if (!dirty && (initial || changedScript || changedFile)) renderScript();
+    renderSelectedFile();
+    $("#add-line").hidden = !currentUser.admin || !currentState.selectedFile;
+    $("#empty-add-line").hidden = !currentUser.admin || !currentState.selectedFile;
     if (data.playhead.sequence !== previousSequence && !initial) {
       lastPlayheadSequence = data.playhead.sequence;
       if (followingLive) {
@@ -163,7 +171,9 @@ function renderScript() {
   $("#script-empty").hidden = visible.length > 0;
   $("#empty-copy").textContent = script.length
     ? "No lines match the roles you selected. Try another role in the sidebar."
-    : "There are no script lines yet.";
+    : currentState.selectedFile
+      ? "There are no script lines yet."
+      : "Choose or create a .txt script file to get started.";
   $("#save-script")?.remove();
   if (currentUser.admin && dirty) {
     const saveButton = create("button", "primary save-script", "Save changes");
@@ -263,13 +273,13 @@ function renderScript() {
 
 function makeCommentForm(line) {
   const form = create("form", "comment-form");
-  const toggle = create("button", "comment-toggle", "＋ Add a comment");
+  const toggle = create("button", "comment-toggle", "＋ Add a note");
   toggle.type = "button";
   const body = create("div", "comment-body");
   body.hidden = true;
   toggle.addEventListener("click", () => {
     body.hidden = !body.hidden;
-    toggle.textContent = body.hidden ? "＋ Add a comment" : "− Cancel comment";
+    toggle.textContent = body.hidden ? "＋ Add a note" : "− Cancel note";
   });
   const textarea = create("textarea", "comment-input");
   textarea.maxLength = 2000;
@@ -278,7 +288,7 @@ function makeCommentForm(line) {
   roleRow.append(create("span", "hint", "Applies to:"));
   const roleChecks = create("div", "comment-role-checks");
   roleCheckboxes(roleChecks, currentState.roles, new Set(), () => {}, "small-checkbox");
-  const submit = create("button", "secondary", "Post comment");
+  const submit = create("button", "secondary", "Post note");
   submit.type = "submit";
   body.append(textarea, roleRow, submit);
   roleRow.append(roleChecks);
@@ -316,11 +326,81 @@ async function saveScript() {
   try {
     await request("/api/script", {
       method: "PUT",
-      body: JSON.stringify({ script: currentState.script }),
+      body: JSON.stringify({ script: currentState.script, selectedFile: currentState.selectedFile }),
     });
     dirty = false;
     showToast("Script saved");
     await fetchState(true);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function renderSelectedFile() {
+  const file = currentState.selectedFile;
+  $("#selected-file").textContent = file || "No text file selected";
+  $("#selected-file").title = file || "";
+}
+
+async function loadScriptFiles(directory = browserDirectory) {
+  try {
+    const result = await request(`/api/script-files?path=${encodeURIComponent(directory)}`);
+    browserDirectory = result.path;
+    $("#file-browser-path").textContent = result.path ? `/${result.path}` : "/";
+    const parentButton = $("#file-browser-parent");
+    parentButton.disabled = result.parent === null;
+    parentButton.dataset.path = result.parent || "";
+    const entries = $("#script-file-entries");
+    entries.replaceChildren();
+    result.entries.forEach(entry => {
+      const button = create("button", `file-entry${entry.directory ? " folder-entry" : ""}`);
+      button.type = "button";
+      button.dataset.path = entry.path;
+      button.dataset.directory = String(entry.directory);
+      button.append(create("span", "file-entry-icon", entry.directory ? "▸" : "TXT"));
+      button.append(create("span", "", entry.name));
+      entries.append(button);
+    });
+    if (!result.entries.length) {
+      entries.append(create("p", "hint", "No folders or .txt files in this folder."));
+    }
+    $("#script-file-browser").hidden = false;
+    return true;
+  } catch (error) {
+    showToast(error.message);
+    return false;
+  }
+}
+
+async function openScriptFile(path) {
+  if (dirty && !confirm("Discard unsaved script changes and open another file?")) return;
+  try {
+    await request("/api/script-files/open", {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    });
+    dirty = false;
+    $("#script-file-browser").hidden = true;
+    await fetchState(true);
+    showToast("Script file opened");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function createScriptFile() {
+  if (dirty && !confirm("Discard unsaved script changes and create another file?")) return;
+  const name = prompt("Name the new script file:", "script.txt");
+  if (name === null) return;
+  try {
+    await request("/api/script-files/create", {
+      method: "POST",
+      body: JSON.stringify({ directory: browserDirectory, name }),
+    });
+    dirty = false;
+    $("#script-file-browser").hidden = true;
+    await fetchState(true);
+    showToast("Script file created");
   } catch (error) {
     showToast(error.message);
   }
@@ -442,6 +522,24 @@ $("#logout-button").addEventListener("click", async () => {
 
 $("#add-line").addEventListener("click", addLine);
 $("#empty-add-line").addEventListener("click", addLine);
+$("#browse-script-files").addEventListener("click", () => loadScriptFiles(""));
+$("#create-script-file").addEventListener("click", () => {
+  if (!$("#script-file-browser").hidden) {
+    createScriptFile();
+  } else {
+    loadScriptFiles(browserDirectory).then(loaded => {
+      if (loaded) createScriptFile();
+    });
+  }
+});
+$("#file-browser-parent").addEventListener("click", event => loadScriptFiles(event.currentTarget.dataset.path));
+$("#file-browser-close").addEventListener("click", () => { $("#script-file-browser").hidden = true; });
+$("#script-file-entries").addEventListener("click", event => {
+  const button = event.target.closest("button[data-path]");
+  if (!button) return;
+  if (button.dataset.directory === "true") loadScriptFiles(button.dataset.path);
+  else openScriptFile(button.dataset.path);
+});
 $("#jump-live").addEventListener("click", () => {
   followingLive = true;
   updateJumpButton();
