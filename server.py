@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).parent
 DATA_DIR = Path(os.environ.get("SCRIPT_TOOL_DATA_DIR", ROOT / "data"))
 STATE_FILE = DATA_DIR / "state.json"
+UPLOAD_DIR = DATA_DIR / "scripts"
 SESSION_COOKIE = "script_session"
 SESSION_TTL = 60 * 60 * 24 * 7
 PASSWORD_ITERATIONS = 310_000
@@ -120,6 +121,21 @@ def resolve_script_path(relative_path, allow_directory=False):
     if not allow_directory and (resolved.suffix.casefold() != ".txt" or not resolved.is_file()):
         raise ValueError("Choose an existing .txt script file.")
     return resolved
+
+
+def resolve_selected_script_path(relative_path):
+    if isinstance(relative_path, str) and relative_path.startswith("@upload/"):
+        filename = relative_path.removeprefix("@upload/")
+        if not re.fullmatch(r"[0-9a-f]{32}\.txt", filename):
+            raise ValueError("The selected uploaded script is invalid.")
+        upload_root = UPLOAD_DIR.resolve()
+        if not upload_root.is_relative_to(DATA_DIR.resolve()):
+            raise ValueError("The uploaded script folder is not available.")
+        path = (upload_root / filename).resolve()
+        if not path.is_relative_to(upload_root) or not path.is_file():
+            raise ValueError("The selected uploaded script no longer exists.")
+        return path
+    return resolve_script_path(relative_path)
 
 
 def relative_script_path(path):
@@ -225,6 +241,7 @@ def load_state():
         loaded.setdefault("script", [])
         loaded.setdefault("playhead", {"lineId": None, "sequence": 0})
         loaded.setdefault("selected_file", "")
+        loaded.setdefault("selected_name", "")
         return loaded
 
     password = os.environ.get("ROOT_PASSWORD", "")
@@ -246,6 +263,7 @@ def load_state():
         "script": [],
         "playhead": {"lineId": None, "sequence": 0},
         "selected_file": "",
+        "selected_name": "",
     }
 
 
@@ -287,8 +305,8 @@ class RequestHandler(BaseHTTPRequestHandler):
     def read_json(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if length < 1 or length > 1_000_000:
-                raise ValueError("Request body must be between 1 byte and 1 MB.")
+            if length < 1 or length > 2_000_000:
+                raise ValueError("Request body must be between 1 byte and 2 MB.")
             payload = json.loads(self.rfile.read(length))
             if not isinstance(payload, dict):
                 raise ValueError("Request body must be a JSON object.")
@@ -340,8 +358,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 for item in directory.iterdir():
                     try:
                         resolved = item.resolve()
-                    except (OSError, RuntimeError) as error:
-                        raise ValueError(f"Could not inspect {item.name}.") from error
+                    except (OSError, RuntimeError):
+                        continue
                     if not resolved.is_relative_to(FILE_ROOT):
                         continue
                     if resolved.is_dir():
@@ -383,6 +401,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     "roles": state["roles"],
                     "playhead": state["playhead"],
                     "selectedFile": state.get("selected_file", ""),
+                    "selectedName": state.get("selected_name", ""),
                     "users": [
                         self.public_user(item) for item in state["users"]
                     ] if user.get("admin") else [],
@@ -438,6 +457,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self.add_comment(payload)
             elif path == "/api/script-files/open":
                 self.open_script_file(payload)
+            elif path == "/api/script-files/upload":
+                self.upload_script_file(payload)
             elif path == "/api/script-files/create":
                 self.create_script_file(payload)
             else:
@@ -597,7 +618,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 "author": user["username"],
             }
             if state.get("selected_file"):
-                path = resolve_script_path(state["selected_file"])
+                path = resolve_selected_script_path(state["selected_file"])
                 updated_script = [
                     {**item, "comments": item["comments"].copy()}
                     for item in state["script"]
@@ -633,6 +654,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                             comment["author"] = old_comment.get("author", "")
                             comment["id"] = old_comment["id"]
             state["selected_file"] = relative_script_path(path)
+            state["selected_name"] = path.name
             known_roles = {role.casefold(): role for role in state["roles"]}
             for line in script:
                 for comment in line["comments"]:
@@ -654,6 +676,59 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_json(HTTPStatus.OK, {
             "ok": True,
             "selectedFile": state["selected_file"],
+            "selectedName": state["selected_name"],
+            "script": state["script"],
+            "playhead": state["playhead"],
+        })
+
+    def upload_script_file(self, payload):
+        if not self.require_admin():
+            return
+        name = payload.get("name", "")
+        contents = payload.get("contents", "")
+        if (
+            not isinstance(name, str)
+            or not name.strip()
+            or Path(name).name != name
+            or Path(name).suffix.casefold() != ".txt"
+        ):
+            raise ValueError("Choose a .txt script file.")
+        if not isinstance(contents, str) or len(contents.encode("utf-8")) > 1_000_000:
+            raise ValueError("Script files must be 1 MB or smaller.")
+        script = parse_text_script(contents)
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        upload_root = UPLOAD_DIR.resolve()
+        if not upload_root.is_relative_to(DATA_DIR.resolve()):
+            raise ValueError("The uploaded script folder is not available.")
+        filename = f"{uuid.uuid4().hex}.txt"
+        path = upload_root / filename
+        with path.open("x", encoding="utf-8", newline="\n") as file:
+            file.write(serialize_text_script(script))
+        with state_lock:
+            state["selected_file"] = f"@upload/{filename}"
+            state["selected_name"] = name.strip()
+            known_roles = {role.casefold(): role for role in state["roles"]}
+            for line in script:
+                for comment in line["comments"]:
+                    normalized_roles = []
+                    for role in comment["roles"]:
+                        normalized_role = known_roles.get(role.casefold())
+                        if normalized_role is None:
+                            normalized_role = role
+                            state["roles"].append(role)
+                            known_roles[role.casefold()] = role
+                        normalized_roles.append(normalized_role)
+                    comment["roles"] = normalized_roles
+            state["script"] = script
+            state["playhead"] = {
+                "lineId": script[0]["id"] if script else None,
+                "sequence": state["playhead"]["sequence"] + 1,
+            }
+            save_state()
+        self.send_json(HTTPStatus.OK, {
+            "ok": True,
+            "selectedFile": state["selected_file"],
+            "selectedName": state["selected_name"],
             "script": state["script"],
             "playhead": state["playhead"],
         })
@@ -684,6 +759,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             file.write("")
         with state_lock:
             state["selected_file"] = relative_script_path(path)
+            state["selected_name"] = path.name
             state["script"] = []
             state["playhead"] = {
                 "lineId": None,
@@ -693,6 +769,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_json(HTTPStatus.CREATED, {
             "ok": True,
             "selectedFile": state["selected_file"],
+            "selectedName": state["selected_name"],
             "script": [],
             "playhead": state["playhead"],
         })
@@ -719,7 +796,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 ):
                     raise ValueError("Script lines and comments can only use existing roles.")
                 if state.get("selected_file"):
-                    write_text_script(resolve_script_path(state["selected_file"]), script)
+                    write_text_script(resolve_selected_script_path(state["selected_file"]), script)
                 state["script"] = script
                 if state["playhead"]["lineId"] and not any(
                     line["id"] == state["playhead"]["lineId"] for line in script

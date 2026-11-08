@@ -40,6 +40,7 @@ class ScriptFileTests(unittest.TestCase):
             server.state["roles"] = ["Actor", "Director", "lights"]
             server.state["script"] = []
             server.state["selected_file"] = ""
+            server.state["selected_name"] = ""
             server.state["playhead"] = {"lineId": None, "sequence": 0}
             server.state["users"] = [{
                 "username": "root",
@@ -123,6 +124,44 @@ class ScriptFileTests(unittest.TestCase):
             "script": [line],
         })
         self.assertEqual(path.read_text(encoding="utf-8"), "Updated cue")
+
+    def test_browser_file_upload_imports_plain_text_script(self):
+        status, result = self.request_json("/api/script-files/upload", "POST", {
+            "name": "picked-script.txt",
+            "contents": "First cue\nN (lights up)lights\nSecond cue",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(result["selectedName"], "picked-script.txt")
+        _, state = self.request_json("/api/state")
+        self.assertEqual(state["script"][0]["comments"][0]["text"], "lights up")
+        imported = server.resolve_selected_script_path(state["selectedFile"])
+        self.assertEqual(
+            imported.read_text(encoding="utf-8"),
+            "First cue\nN (lights up)lights\nSecond cue",
+        )
+
+    def test_upload_rejects_non_text_files(self):
+        with self.assertRaises(HTTPError) as error:
+            self.request_json("/api/script-files/upload", "POST", {
+                "name": "script.doc",
+                "contents": "Not a text script",
+            })
+        self.assertEqual(error.exception.code, 400)
+
+    def test_saving_uploaded_script_updates_server_copy(self):
+        _, opened = self.request_json("/api/script-files/upload", "POST", {
+            "name": "local-script.txt",
+            "contents": "Original cue",
+        })
+        _, state = self.request_json("/api/state")
+        line = state["script"][0]
+        line["text"] = "Edited cue"
+        self.request_json("/api/script", "PUT", {
+            "selectedFile": opened["selectedFile"],
+            "script": [line],
+        })
+        path = server.resolve_selected_script_path(opened["selectedFile"])
+        self.assertEqual(path.read_text(encoding="utf-8"), "Edited cue")
 
     def test_browser_rejects_paths_outside_system_drive(self):
         request = Request(self.base_url + "/api/script-files?" + urlencode({"path": "../.."}))
