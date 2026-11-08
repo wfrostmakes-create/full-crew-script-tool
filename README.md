@@ -14,7 +14,7 @@ Start the app in PowerShell:
 python server.py
 ```
 
-By default, the server listens on `127.0.0.1:8080`, so only programs on this PC can connect. The built-in `root` / `root` credentials are insecure; do not expose this app to your network or the internet. To allow other devices to connect, set `HOST` to a network interface address (or `0.0.0.0`) and `PORT` to the desired port, and configure your firewall appropriately. Set `PORT` to override the default port.
+By default, the server listens on all network interfaces (`0.0.0.0:8080`). On this PC, open `http://localhost:8080`; from another device on your network, use one of the network IP addresses printed at startup. Access from other devices may require allowing port 8080 through the PC's firewall. The initial `root` / `root` credentials are insecure: change the password in **Settings** before allowing other devices to connect, and do not expose the app to the public internet. Set `HOST` to a specific address to limit which interface the server listens on, or set `PORT` to override the default port.
 
 The initial root account is created only when the data file does not exist. To change the username or password later, sign in and use **Settings**. The administrator can add user accounts and production roles from the sidebar. User passwords are not recoverable; an administrator should create a replacement account if a user loses their password.
 
