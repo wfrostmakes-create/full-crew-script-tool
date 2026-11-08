@@ -142,6 +142,18 @@ class ScriptFileTests(unittest.TestCase):
             [line["text"] for line in state["script"]],
             ["Updated cue", "Next cue"],
         )
+    def test_admin_can_open_empty_text_file_with_spaces_in_path(self):
+        show_folder = server.FILE_ROOT / "church-show-files"
+        show_folder.mkdir()
+        (show_folder / "test script.txt").write_text("", encoding="utf-8")
+
+        self.request_json("/api/script-files/open", "POST", {
+            "path": "church-show-files/test script.txt",
+        })
+        _, state = self.request_json("/api/state")
+
+        self.assertEqual(state["selectedFile"], "church-show-files/test script.txt")
+        self.assertEqual(state["script"], [])
 
     def test_adding_note_updates_selected_plain_text_file(self):
         path = server.FILE_ROOT / "scene.txt"
