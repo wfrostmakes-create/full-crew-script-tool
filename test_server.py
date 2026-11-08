@@ -100,6 +100,19 @@ class ScriptFileTests(unittest.TestCase):
         self.assertEqual(state["script"][0]["comments"][0]["text"], "lights up")
         self.assertIn("lights", state["roles"])
 
+    def test_admin_can_open_empty_text_file_with_spaces_in_path(self):
+        show_folder = server.FILE_ROOT / "church-show-files"
+        show_folder.mkdir()
+        (show_folder / "test script.txt").write_text("", encoding="utf-8")
+
+        self.request_json("/api/script-files/open", "POST", {
+            "path": "church-show-files/test script.txt",
+        })
+        _, state = self.request_json("/api/state")
+
+        self.assertEqual(state["selectedFile"], "church-show-files/test script.txt")
+        self.assertEqual(state["script"], [])
+
     def test_adding_note_updates_selected_plain_text_file(self):
         path = server.FILE_ROOT / "scene.txt"
         path.write_text("Cue line", encoding="utf-8")
