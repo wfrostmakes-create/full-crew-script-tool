@@ -28,7 +28,8 @@ function roleStorageKey() {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(path, {
+  const apiPath = path.replace(/^\/+/, "");
+  const response = await fetch(new URL(apiPath, document.baseURI), {
     credentials: "same-origin",
     ...options,
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
