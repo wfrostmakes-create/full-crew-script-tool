@@ -37,6 +37,6 @@ To move the production to another host, stop the server and copy `data/state.jso
 - Lines can be reordered with the up/down controls.
 - Select roles on a line to mark its intended audience. Each person independently chooses which roles to display.
 - Add comments to a line and select the roles the note applies to. Mark important cues to show a warning when a visible line is brought live.
-- **Compact notes** is a personal display toggle. When on, each visible note is reduced to one colored, truncated line of note text; its author and target-role labels are hidden. The setting is saved separately for each username in that browser.
+- **Notes display** is a personal setting with two views: Normal shows notes with their author and target-role labels; Compact + numbered shows each cue with its line number, followed by its notes and a one-line gap before the next cue. Compact + numbered hides editing controls to fit more lines on screen. The setting is saved separately for each username in that browser.
 - Press the up/down arrow keys to advance or rewind the shared live cue. Scrolling by touch, wheel, trackpad, or scrollbar moves only your own view. Use **Jump back to live cue** to resync.
 - Change theme, font, and text size in **Settings**; display choices are saved in that browser.

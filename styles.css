@@ -76,6 +76,7 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent-s
 .main-content { min-width: 0; height: calc(100vh - 68px); overflow: auto; padding: 36px clamp(22px, 5vw, 72px) 90px; }
 .script-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 890px; margin: 0 auto 30px; }
 .script-toolbar-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.notes-mode-select { width: auto; min-width: 155px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-raised); color: var(--text); font-size: 13px; font-weight: 600; }
 .eyebrow { color: var(--accent); font: 500 10px 'DM Mono', monospace; letter-spacing: 1.6px; margin: 0 0 8px; }
 h1 { margin: 0; font-size: 24px; letter-spacing: -.6px; }
 h2 { letter-spacing: -.4px; }
@@ -133,6 +134,16 @@ h2 { letter-spacing: -.4px; }
 .compact-note { padding-top: 6px; padding-bottom: 6px; }
 .compact-note .comment-head { display: none; }
 .compact-note p { overflow: hidden; margin: 0; color: var(--accent); text-overflow: ellipsis; white-space: nowrap; }
+.compact-note-mode { display: block; }
+.compact-note-mode .script-card { padding: 0 0 1.25em; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.compact-note-mode .script-card.live-line { border-color: var(--accent); box-shadow: none; }
+.compact-note-mode .line-head, .compact-note-mode .line-options, .compact-note-mode .comment-form { display: none; }
+.compact-note-mode .line-body { display: flex; align-items: baseline; gap: 7px; }
+.compact-note-mode .cue-number { flex: 0 0 auto; padding: 0; font-size: 13px; line-height: 1.25; }
+.compact-note-mode .script-text { margin: 0; font-size: min(var(--script-size), 18px); line-height: 1.25; }
+.compact-note-mode .comment-list { gap: 0; margin: 0; }
+.compact-note-mode .comment { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.compact-note-mode .compact-note p { color: var(--muted); font-size: 13px; line-height: 1.3; }
 .comment-head { font-size: 11px; }
 .comment-head strong { margin-right: 4px; }
 .comment p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; white-space: pre-wrap; }

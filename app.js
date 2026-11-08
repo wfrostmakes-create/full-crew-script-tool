@@ -22,10 +22,14 @@ let programmaticScroll = false;
 let renderedRoleSignature = "";
 let browserDirectory = "";
 let selectedFileHandle = null;
-let compactNotes = false;
+let notesDisplayMode = "normal";
 
 function roleStorageKey() {
   return `script-cue-roles:${currentUser?.username || "default"}`;
+}
+
+function notesDisplayModeStorageKey() {
+  return `script-cue-notes-display-mode:${currentUser?.username || "default"}`;
 }
 
 function compactNotesStorageKey() {
@@ -61,7 +65,15 @@ function showLogin() {
 
 async function showApp(user) {
   currentUser = user;
-  compactNotes = localStorage.getItem(compactNotesStorageKey()) === "true";
+  const savedNotesDisplayMode = localStorage.getItem(notesDisplayModeStorageKey());
+  if (["normal", "compact"].includes(savedNotesDisplayMode)) {
+    notesDisplayMode = savedNotesDisplayMode;
+  } else {
+    const savedCompactNotes = localStorage.getItem(compactNotesStorageKey()) === "true";
+    notesDisplayMode = savedCompactNotes || savedNotesDisplayMode === "numbered" ? "compact" : "normal";
+    localStorage.setItem(notesDisplayModeStorageKey(), notesDisplayMode);
+  }
+  $("#notes-display-mode").value = notesDisplayMode;
   const savedRoles = localStorage.getItem(roleStorageKey());
   if (savedRoles) {
     selectedRoles = new Set(JSON.parse(savedRoles));
@@ -182,6 +194,7 @@ function renderRoleFilters() {
 function renderScript() {
   const script = currentState.script;
   const visible = script.filter(isLineVisible);
+  elements.scriptList.classList.toggle("compact-note-mode", notesDisplayMode === "compact");
   elements.lineCount.textContent = `${visible.length} ${visible.length === 1 ? "line" : "lines"}`;
   $("#script-empty").hidden = visible.length > 0;
   $("#empty-copy").textContent = script.length
@@ -206,16 +219,19 @@ function renderScript() {
     const tags = create("div", "line-tags");
     line.roles.forEach(role => tags.append(create("span", "role-tag", role)));
     if (line.important) tags.append(create("span", "important-tag", "Important cue"));
-    if (tags.childElementCount) {
+    if (tags.childElementCount && notesDisplayMode !== "compact") {
       lineHead.append(tags);
       card.append(lineHead);
     }
 
-    const lineBody = create("div", "line-body");
-    const cueNumber = create("span", "cue-number", String(script.indexOf(line) + 1).padStart(2, "0"));
+    const lineBody = create("div", `line-body${notesDisplayMode === "compact" ? " compact-line-body" : ""}`);
+    const lineNumber = script.indexOf(line) + 1;
+    const cueNumber = create("span", "cue-number", notesDisplayMode === "compact"
+      ? String(lineNumber)
+      : String(lineNumber).padStart(2, "0"));
     lineBody.append(cueNumber);
     let lineOptions = null;
-    if (currentUser.admin) {
+    if (currentUser.admin && notesDisplayMode !== "compact") {
       const editor = create("textarea", "line-editor");
       editor.setAttribute("aria-label", `Script line ${script.indexOf(line) + 1}`);
       editor.rows = Math.max(2, Math.min(7, Math.ceil(line.text.length / 72)));
@@ -278,7 +294,7 @@ function renderScript() {
     if (comments.length) {
       const commentList = create("div", "comment-list");
       comments.forEach(comment => {
-        const note = create("div", `comment${compactNotes ? " compact-note" : ""}`);
+        const note = create("div", `comment${notesDisplayMode === "compact" ? " compact-note" : ""}`);
         const noteHead = create("div", "comment-head");
         noteHead.append(create("strong", "", comment.author || "Production note"));
         comment.roles.forEach(role => noteHead.append(create("span", "role-tag", role)));
@@ -287,7 +303,7 @@ function renderScript() {
       });
       card.append(commentList);
     }
-    card.append(makeCommentForm(line));
+    if (notesDisplayMode !== "compact") card.append(makeCommentForm(line));
     elements.scriptList.append(card);
   });
 }
@@ -379,12 +395,6 @@ function renderSelectedFile() {
   $("#selected-file").textContent = name || "No text file selected";
   $("#selected-file").title = name || "";
   $("#reload-script-file").hidden = !file;
-}
-
-function updateCompactNotesButton() {
-  const button = $("#toggle-compact-notes");
-  button.textContent = `Compact notes: ${compactNotes ? "On" : "Off"}`;
-  button.setAttribute("aria-pressed", String(compactNotes));
 }
 
 async function reloadScriptFromFile(confirmDiscard = true, announce = true, refreshState = true) {
@@ -655,10 +665,9 @@ $("#logout-button").addEventListener("click", async () => {
 
 $("#add-line").addEventListener("click", addLine);
 $("#empty-add-line").addEventListener("click", addLine);
-$("#toggle-compact-notes").addEventListener("click", () => {
-  compactNotes = !compactNotes;
-  localStorage.setItem(compactNotesStorageKey(), String(compactNotes));
-  updateCompactNotesButton();
+$("#notes-display-mode").addEventListener("change", event => {
+  notesDisplayMode = event.target.value;
+  localStorage.setItem(notesDisplayModeStorageKey(), notesDisplayMode);
   renderScript();
 });
 $("#reload-script-file").addEventListener("click", () => reloadScriptFromFile());
