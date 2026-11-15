@@ -8,7 +8,18 @@ Requires Python 3.10 or later; there are no third-party packages.
 
 On first run, the initial administrator credentials are `root` / `root`. Passwords must not be empty, but have no minimum length. Passwords are never stored as plaintext; the server stores salted PBKDF2 password hashes in `data/state.json`.
 
-Start the app in PowerShell:
+If you cloned the repository with GitHub Desktop, the default Windows location is `Documents\GitHub\full-crew-script-tool`. Open PowerShell and run:
+
+```powershell
+Set-Location "$HOME\Documents\GitHub\full-crew-script-tool"
+python server.py
+```
+
+If you chose a different local folder in GitHub Desktop, replace the path in `Set-Location` with your repository's folder. You can find it in GitHub Desktop with **Repository > Show in Explorer**; in File Explorer, use the address bar to see or copy the folder path.
+
+The server runs in that PowerShell window. Once it starts, open `http://localhost:8080` in your browser. To stop the server, press **Ctrl+C** in PowerShell.
+
+If PowerShell is already open in the repository folder, start the app with:
 
 ```powershell
 python server.py
